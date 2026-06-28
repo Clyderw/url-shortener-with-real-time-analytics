@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS links (
+  id BIGSERIAL PRIMARY KEY,
+  code VARCHAR(16) NOT NULL UNIQUE,
+  long_url TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_code ON links (code);

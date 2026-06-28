@@ -1,0 +1,31 @@
+{
+  "name": "redis-url-shortener-analytics",
+  "version": "1.0.0",
+  "description": "A Redis-powered URL shortener with rate limiting, caching, and live click analytics.",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node scripts/migrate.js"
+  },
+  "keywords": [
+    "url-shortener",
+    "redis",
+    "analytics",
+    "rate-limiter",
+    "postgresql"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1",
+    "redis": "^4.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
