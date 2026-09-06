@@ -1,298 +1,287 @@
-# URL Shortener with Real-Time Analytics
+#URL Shortener with Real-Time Analytics
 
 This is a small but realistic URL shortener built around Redis.
 
-The idea is simple: PostgreSQL keeps the permanent copy of every short link, while Redis handles the busy work that needs to be fast: caching hot links, rate limiting new shorten requests, and counting clicks live with `INCR`.
+The idea is that PostgreSQL stores the permenent record of every short URL, whereas Redis handles the busy work that is more I/O bound. Cache hot URL's, rate-limit new shorten request, and count the clicks live using Redis INCR.
 
-It is not trying to be a giant production platform, but the shape is the same one you would use when traffic starts to matter.
+This is not being built out as an enormous production platform however; it shape is exactly the same shape one would reach when traffic really starts to matter.
 
-## What This Project Does
+What this project does
 
-- Turns a long URL into a short URL like `http://localhost:3000/a8KqP2x`
-- Redirects short URLs back to the original long URL
-- Stores the durable URL mapping in PostgreSQL
-- Caches short URL lookups in Redis so popular links do not keep hitting PostgreSQL
-- Limits users to 10 shorten requests per minute by default
-- Tracks live click counts in Redis every time a short URL is visited
-- Exposes a small analytics endpoint for each link
+- Turn a long URL into a short URL like, http://localhost:3000/a8KqP2x
+- Redirect short URLs back to a long URL
+- Persist long URL mappings in PostgreSQL
+- Cache short URL lookups so that hot URL's do not always hit PostgreSQL.
+- Default rate limits new shorten requests at 10 URL's per minute per IP address.
+- Maintain live count of total clicks for each short URL in Redis.
+- Provide a simple endpoint that will display live analytics for a single URL
 
-## Why Redis Is Useful Here
+Why this could be useful with Redis
 
-Redis is great when the answer needs to come back very quickly and the data is simple.
+Redis makes things fast. When the answer needs to return in a blur, or there isn't a massive amount of state in each record, Redis is your guy. Redis here has three main uses:
 
-In this app, Redis has three jobs:
+1. Caching hot URL's
 
-1. **Cache hot URLs**
+Whenever the app gets hit at /abc123, it will first askRedis:
 
-   When someone visits `/abc123`, the app first asks Redis:
+``text
 
-   ```text
-   url:abc123 -> https://example.com/some/very/long/page
-   ```
+url:abc123 -> https://example.com/long/page/and/many/others
 
-   If Redis has it, the redirect can happen immediately. If Redis does not have it, the app falls back to PostgreSQL, then saves the result back into Redis for next time.
+`
 
-2. **Rate limit API users**
+if Redis has the response, the user's browser can redirect them immediately. If Redis doesn't have it, the app can fallback and query PostgreSQL, before saving the returned data into Redis for the next time somebody asks.
 
-   Every shorten request increments a Redis key tied to the caller:
+2. Rate Limiting API Users
 
-   ```text
-   rate_limit:shorten:<ip-address>
-   ```
+Every time that someone requests to create a new shorten link, their IP address gets a rate limited counter by Redis:
 
-   The key expires after 60 seconds. If the counter goes above 10 before it expires, the API returns `429 Too Many Requests`.
+`text
 
-3. **Count clicks live**
+rate_limit:shorten: -> count value
 
-   Every redirect runs:
+`
 
-   ```text
-   INCR clicks:abc123
-   ```
+Each key expires by default at 60s, which means they can hit the API 10 times max a minute. If their IP exceeds the max requests, we'll simply return 429.
 
-   That gives us a live click count without waiting for a database write. The app also updates a Redis sorted set called `popular_urls`, which makes it easy to rank links by traffic later.
+3. Counting clicks live
 
-## Tech Stack
+Redis will INCR it's internal counter every time someone uses the shortened link. This is really simple, gives a live count of clicks without having to do an expensive DB write per-click. Also store a Redis sorted set labeled popular\_urls which makes it incredibly simple to sort by link clicks when needed.
+
+Tech stack
 
 - Node.js
+
 - Express
+
 - Redis
+
 - PostgreSQL
-- Docker Compose for local Redis and PostgreSQL
 
-## Project Structure
+- Docker Compose to run Redis + PostgreSQL local databases.
 
-```text
+Project structure
+
+`text
+
 .
-├── docker-compose.yml
-├── package.json
-├── scripts/
-│   └── migrate.js
-├── sql/
-│   └── schema.sql
-└── src/
-    ├── config.js
-    ├── db.js
-    ├── redis.js
-    ├── middleware/
-    │   └── rateLimiter.js
-    ├── routes/
-    │   └── links.js
-    ├── services/
-    │   └── linkService.js
-    ├── utils/
-    │   └── hash.js
-    └── server.js
-```
 
-## Getting Started
+Docker-compose.yml
+
+package.json
+
+scripts/
+
+migrate.js
+
+sql/
+
+schema.sql
+
+src/
+
+config.js
+
+db.js
+
+redis.js
+
+middleware/
+
+rateLimiter.js
+
+routes/
+
+links.js
+
+services/
+
+linkService.js
+
+utils/
+
+hash.js
+
+server.js
+
+`
+
+Getting started
 
 ### 1. Install dependencies
 
-```bash
+`bash
+
 npm install
-```
+
+`
 
 ### 2. Start Redis and PostgreSQL
 
-```bash
+`bash
+
 docker compose up -d
-```
 
-This starts:
+`
 
-- Redis on `localhost:6379`
-- PostgreSQL on `localhost:5432`
+This will bring up Redis on port 6379 and PostgreSQL on port 5432.
 
-### 3. Create your environment file
+### 3. Create an environment file
 
-```bash
+`bash
+
 cp .env.example .env
-```
 
-The defaults are already set up for the Docker Compose services, so you usually do not need to change anything.
+`
 
-### 4. Run the database migration
+You will need to fill out the environment variables below. Defaults usually cover well enough when you're just starting out and using docker compose.
 
-```bash
+### 4. Run migrations
+
+`bash
+
 npm run migrate
-```
 
-This creates the `links` table in PostgreSQL.
+`
+
+This sets up a basic links table to your PostgreSQL database.
 
 ### 5. Start the API
 
-```bash
+`bash
+
 npm run dev
-```
 
-The app will run at:
+`
 
-```text
-http://localhost:3000
-```
+The API will start up on port 3000.
 
-## Trying It Out
+Trying It Out
 
 ### Health check
 
-```bash
+`bash
+
 curl http://localhost:3000/health
-```
 
-Expected response:
-
-```json
-{
-  "status": "ok",
-  "postgres": "connected",
-  "redis": "connected"
-}
-```
+`
 
 ### Shorten a URL
 
-```bash
-curl -X POST http://localhost:3000/api/shorten \
-  -H "Content-Type: application/json" \
-  -d '{"longUrl":"https://redis.io/docs/latest/"}'
-```
+`bash
 
-Example response:
+curl -X POST http://localhost:3000/api/shorten -H 'Content-Type: application/json' -d '{"longUrl":"https://redis.io/docs/latest/"}'
 
-```json
-{
-  "code": "a8KqP2x",
-  "longUrl": "https://redis.io/docs/latest/",
-  "shortUrl": "http://localhost:3000/a8KqP2x"
-}
-```
+`
 
-### Visit the short URL
+### Use the short URL
 
-```bash
+`bash
+
 curl -I http://localhost:3000/a8KqP2x
-```
 
-The response will be a `302` redirect to the original URL.
+`
 
-You will also see two useful headers:
+You will get a 302 Found, redirecting to the longUrl, with a few helpful headers:
 
-```text
+`text
+
 X-URL-Source: redis-cache
+
 X-Live-Clicks: 1
-```
 
-`X-URL-Source` tells you whether the redirect came from Redis or PostgreSQL. The first request after a cache miss may say `postgres`; later requests should say `redis-cache`.
+`
 
-### Check analytics
+This shows that the URL was found from Redis, and that this is the first click. The very first request when a URL has never been viewed, will have 'postgres' here.
 
-```bash
+### Check the analytics
+
+`bash
+
 curl http://localhost:3000/api/links/a8KqP2x/analytics
-```
 
-Example response:
+`
 
-```json
+### API endpoints
+
+POST /api/shorten
+
+Creates a new short URL. Takes longUrl as input, returns the generated code, longUrl, and a shortUrl. Rate limited at 10 URL's per minute per IP.
+
+`json
+
 {
-  "code": "a8KqP2x",
-  "longUrl": "https://redis.io/docs/latest/",
-  "shortUrl": "http://localhost:3000/a8KqP2x",
-  "createdAt": "2026-06-28T00:00:00.000Z",
-  "clicks": 3,
-  "popularityRank": 1
+
+"code": "a8KqP2x",
+
+"longUrl": "https://redis.io/docs/latest/",
+
+"shortUrl": "http://localhost:3000/a8KqP2x"
+
 }
-```
 
-## API Reference
+`
 
-### `POST /api/shorten`
+GET /:code
 
-Creates a new short URL.
-
-Request body:
-
-```json
-{
-  "longUrl": "https://example.com"
-}
-```
-
-Success response:
-
-```json
-{
-  "code": "abc1234",
-  "longUrl": "https://example.com",
-  "shortUrl": "http://localhost:3000/abc1234"
-}
-```
-
-Rate limit:
-
-- Default: 10 requests per minute
-- Backed by Redis
-- Configurable with `RATE_LIMIT_WINDOW_SECONDS` and `RATE_LIMIT_MAX_REQUESTS`
-
-### `GET /:code`
-
-Redirects to the original long URL.
-
-Behind the scenes:
+Redirects a short URL back to the long URL.
 
 1. Check Redis cache
-2. If missing, read from PostgreSQL
-3. Store the result back in Redis
-4. Increment the Redis click counter
-5. Redirect the user
 
-### `GET /api/links/:code/analytics`
+2. Fallback to PostgreSQL if Redis misses
 
-Returns live analytics for one short URL.
+3. Store data back to cache
 
-The click number comes from Redis, so it updates immediately after redirects.
+4. Record the click in Redis
 
-### `GET /health`
+5. Redirect.
 
-Checks whether the API can talk to PostgreSQL and Redis.
+GET /api/links/:code/analytics
 
-## Configuration
+Returns the longUrl, shortUrl, code, creation date, clicks, and popularityRank for a given short URL. The clicks value is from Redis.
 
-All configuration comes from environment variables.
+### Configuration
+
+The API is configurable via environment variables.
 
 | Variable | Default | What it does |
-| --- | --- | --- |
-| `PORT` | `3000` | API port |
-| `BASE_URL` | `http://localhost:3000` | Base URL used when returning short links |
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/url_shortener` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
-| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Rate limit window |
-| `RATE_LIMIT_MAX_REQUESTS` | `10` | Max shorten requests per window |
-| `CACHE_TTL_SECONDS` | `3600` | How long cached URL mappings stay in Redis |
 
-## A Note About Scaling
+| :------------------------ | :-------- | :-------------------------------------------- |
+| PORT | 3000 | Port that the application runs on |
+| BASE_URL | http://localhost:3000 | The base URL returned in short links |
+| DATABASE_URL | | The database URL for PostgreSQL connection. |
+| REDIS_URL | | The connection url to Redis. |
+| RATELIMITWINDOW_SECONDS | 60 | How many seconds a rate limit window lasts |
+| RATELIMITMAX_REQUESTS | 10 | Max number of shorten requests allowed within a single window |
+| CACHETTLSECONDS | 3600 | Time to live before a cached entry expires |
 
-The redirect path is intentionally Redis-first because redirects are the hottest part of a URL shortener. In a real deployment, a popular link might be clicked thousands of times per minute. There is no reason to ask PostgreSQL for the same long URL over and over when Redis can keep that answer nearby.
+A note on scaling
 
-PostgreSQL is still important. Redis is fast, but PostgreSQL is the durable source of truth for the URL mapping. If Redis restarts or a cache key expires, the app can rebuild the cache from the database.
+The redirect path must use a cache (Redis, in our case) because this is the most IO-bound part of the system. In production, an IP might hit a given URL dozens, or hundreds of thousands of times a minute, and there's no need to go ask PostgreSQL each time.
+The database serves as our persistent storage, and also for fall-back, or ifRedis fails a given data record.
 
-For a larger production version, I would add:
+To handle more production scale:
 
-- A background worker that periodically flushes Redis click counts into PostgreSQL
-- Per-user accounts and API keys
-- Custom aliases
-- Expiration dates for links
-- Abuse detection for malicious URLs
-- Separate Redis clusters for caching, rate limits, and analytics if traffic gets very high
+- A Redis background job to dump popular click counts into the database, or directly increment a counter in PostgreSQL when an index is maintained in Redis.
+- API keys and accounts for users.
+- Support for custom url aliases.
+- TTL on URL's that expire after time.
+- Abuse detection for bad domains and usage patterns.
+- Potentially different Redis deployments, to split cache, rate limiting and analytics data, in the case the performance becomes extreme.
 
-## Stopping Everything
+Shutting down
 
-```bash
+`bash
+
 docker compose down
-```
 
-If you also want to remove local database and Redis data:
+`
 
-```bash
+To take down everything and delete your local data:
+
+`bash
+
 docker compose down -v
-```
+
+``
+
